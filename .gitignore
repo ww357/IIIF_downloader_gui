@@ -1,0 +1,7 @@
+build/
+dist/
+iiif_downloader_gui.spec
+*.exe
+*.pkg
+__pycache__/
+*.pyc

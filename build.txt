@@ -1,0 +1,5 @@
+@echo off
+echo Building IIIF Downloader...
+pyinstaller --onefile --windowed --name "IIIF_Downloader" iiif_downloader_gui.py
+echo Done! Check the 'dist' folder for IIIF_Downloader.exe
+pause
