@@ -17,6 +17,8 @@ import json
 import re
 import sys
 from typing import Dict, Tuple, List, Optional
+import time
+import gc
 
 class IIIFDownloaderApp:
     def __init__(self, root):
@@ -110,7 +112,7 @@ class IIIFDownloaderApp:
         
         # Workers Option
         ttk.Label(main_frame, text="Concurrent Downloads:").grid(row=7, column=0, sticky=tk.W, pady=10)
-        self.workers_var = tk.IntVar(value="4")
+        self.workers_var = tk.IntVar(value="2")
         workers_frame = ttk.Frame(main_frame)
         workers_frame.grid(row=7, column=1, columnspan=2, sticky=tk.W, pady=10)
         
@@ -251,11 +253,20 @@ class IIIFDownloaderApp:
             y += tile_h
         return urls
     
-    def download_one(self, session, url):
-        """Download a single tile (from original script)"""
-        r = session.get(url, headers=self.get_headers(), timeout=60)
-        r.raise_for_status()
-        return Image.open(io.BytesIO(r.content)).convert("RGBA")
+    def download_one(self, session, url, retries=3):
+        """Download a single tile with retry logic"""
+        for attempt in range(retries):
+            try:
+                r = session.get(url, headers=self.get_headers(), timeout=60)
+                r.raise_for_status()
+                img = Image.open(io.BytesIO(r.content))
+                if img.size[0] == 0 or img.size[1] == 0:
+                    raise ValueError("Empty image received")
+                return img.convert("RGBA")
+            except Exception as e:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(1 * (attempt + 1))
     
     def start_download(self):
         """Start the download process"""
@@ -404,15 +415,23 @@ class IIIFDownloaderApp:
                         try:
                             img = future.result()
                             
-                            # Crop to exact dimensions if needed
-                            if img.size != (w, h):
-                                img = img.crop((0, 0, w, h))
-                            
-                            # Paste onto canvas
-                            canvas.paste(img, (x, y), img)
+                            # VALIDATE TILE SIZE
+                            if img.size == (w, h):
+                                canvas.paste(img, (x, y), img)
+                            else:
+                                self.log_message(f"Tile size mismatch at ({x},{y}): got {img.size}, expected ({w},{h})")
+                                if img.size[0] >= w and img.size[1] >= h:
+                                    img = img.crop((0, 0, w, h))
+                                    canvas.paste(img, (x, y), img)
+                                else:
+                                    raise ValueError(f"Tile too small: {img.size}")
                             
                             downloaded += 1
                             progress = (downloaded / total) * 100
+                            
+                            # GARBAGE COLLECT PERIODICALLY
+                            if downloaded % 50 == 0:
+                                gc.collect()
                             
                             self.update_progress(progress)
                             self.update_status(f"Downloaded {downloaded}/{total} tiles")
